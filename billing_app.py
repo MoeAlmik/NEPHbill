@@ -20,9 +20,9 @@ from billing_functions import (
 # ---------------------------
 # 🔒 User Authentication
 # ---------------------------
-names = ['Dr. Ali', 'Nurse Betty']
-usernames = ['ali', 'betty']
-passwords = ['pw1', 'pw2']  # ❗ Replace with strong, hashed passwords for deployment
+names = ['Dr. Almikhlafi', 'RN']
+usernames = ['moe', 'czarina']
+passwords = ['clinic20201', 'clinic20251']  # ❗ Replace with strong, hashed passwords for deployment
 
 hashed_pw = stauth.Hasher(passwords).generate()
 authenticator = stauth.Authenticate(
