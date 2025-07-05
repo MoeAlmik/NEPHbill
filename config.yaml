@@ -4,7 +4,7 @@ credentials:
       name: Dr. Almikhlafi
       password: '$2b$12$M3dZSx/0HTfO3CCi30uK.uMK3UXwl//sMUxuId3YLssTuo.Uz4SG.'
     czarina:
-      name: RN
+      name: Czarina
       password: '$2b$12$1H.sbKURI1qscBuyzzbe8uRM6br.A8q4P9w.NKt35hfIbeZMI9R4O'
 
 cookie:
