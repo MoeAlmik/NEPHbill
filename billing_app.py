@@ -36,7 +36,8 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=config['cookie']['expiry_days']
 )
 
-name, auth_status, username = authenticator.login(location='main')
+name, auth_status, username = authenticator.login('Login')
+
 
 if auth_status is False:
     st.error("Invalid credentials")
