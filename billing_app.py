@@ -75,18 +75,22 @@ if st.button("Calculate Billing Amount"):
             st.markdown(f"{i}: {code}")
 
 # -------------------------------------
-# 📈 OPTIMIZATION SECTION
+# 📈 OPTIMIZATION SECTION (REVISED)
 # -------------------------------------
 st.header("📈 Optimize Clinic Billing")
 
 clinic_duration_hours = st.number_input("Clinic duration (hours)", min_value=1, max_value=12, value=8)
-total_patients = st.number_input("Total number of patients", min_value=1, value=20)
 
+# Specify visit types
 new_consults = st.number_input("Number of new consults", min_value=0, value=5)
 repeat_consults = st.number_input("Number of repeat consults", min_value=0, value=5)
 follow_ups = st.number_input("Number of follow-ups", min_value=0, value=10)
 
-bulk_virtual = False  # You could add a checkbox to enable bulk virtual clinics if you want
+# Total patients auto-calculated
+total_patients = new_consults + repeat_consults + follow_ups
+st.markdown(f"👥 **Total Patients:** {total_patients}")
+
+bulk_virtual = st.checkbox("Are all visits virtual?", value=False)
 
 # Optional: Time of day for all repeat consults
 time_of_day_bulk = st.selectbox(
@@ -96,21 +100,23 @@ time_of_day_bulk = st.selectbox(
 time_of_day_code = None if time_of_day_bulk == "None" else time_of_day_bulk.split()[0]
 
 if st.button("Optimize Billing"):
-    if new_consults + repeat_consults + follow_ups != total_patients:
-        st.error("Total visit counts must equal total number of patients.")
+    total_minutes = clinic_duration_hours * 60
+    if total_patients == 0:
+        st.error("Total patient count must be greater than 0.")
     else:
-        total_minutes = clinic_duration_hours * 60
         avg_time_per_patient = total_minutes // total_patients
-
         revenue_new, revenue_repeat, revenue_follow = 0, 0, 0
 
+        # NEW CONSULTS
         for _ in range(new_consults):
-            r = optimal_billing_strategy("03.08A", duration_minutes=avg_time_per_patient, virtual=bulk_virtual)
+            r = optimal_billing_strategy("03.08CV" if bulk_virtual else "03.08A", duration_minutes=avg_time_per_patient, virtual=bulk_virtual)
             revenue_new += r["total_fee"]
 
+        # REPEAT CONSULTS
         for _ in range(repeat_consults):
-            r = optimal_billing_strategy("03.07B", duration_minutes=avg_time_per_patient, virtual=bulk_virtual)
+            r = optimal_billing_strategy("03.07B", duration_minutes=avg_time_per_patient, virtual=bulk_virtual, time_of_day=time_of_day_code)
 
+            # Recalculate correctly with after-hours & virtual
             base_fee_only = repeat_consultation_03_07B(
                 complexity=r["modifiers_applied"][0] if r["modifiers_applied"] else None,
                 virtual=bulk_virtual,
@@ -125,13 +131,15 @@ if st.button("Optimize Billing"):
 
             revenue_repeat += round(base_fee_only + addon_fee, 2)
 
-
+        # FOLLOW-UPS
         for _ in range(follow_ups):
-            r = optimal_billing_strategy("03.03F", duration_minutes=avg_time_per_patient, virtual=bulk_virtual)
+            hsc = "03.03FV" if bulk_virtual else "03.03F"
+            r = optimal_billing_strategy(hsc, duration_minutes=avg_time_per_patient, virtual=bulk_virtual)
             revenue_follow += r["total_fee"]
 
         total_revenue = revenue_new + revenue_repeat + revenue_follow
 
+        # DISPLAY OUTPUT
         st.success(f"📊 Optimized Revenue: ${total_revenue:.2f}")
         st.markdown(f"- ⏱️ Average Time per Patient: **{avg_time_per_patient} minutes**")
         st.markdown(f"- 🧾 New Consults: ${revenue_new:.2f}")
