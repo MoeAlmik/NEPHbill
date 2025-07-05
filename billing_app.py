@@ -25,8 +25,12 @@ from billing_functions import (
 with open('config.yaml') as file:
     config = yaml.safe_load(file)
 
+if 'credentials' not in config or 'usernames' not in config['credentials']:
+    st.error("❌ 'usernames' key not found in config.yaml.")
+    st.stop()
+
 authenticator = stauth.Authenticate(
-    config,
+    config['credentials'],
     config['cookie']['name'],
     config['cookie']['key'],
     cookie_expiry_days=config['cookie']['expiry_days']
