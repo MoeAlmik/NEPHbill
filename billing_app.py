@@ -4,6 +4,7 @@
 
 import streamlit as st
 import pandas as pd
+import yaml
 import streamlit_authenticator as stauth
 
 from billing_functions import (
@@ -20,14 +21,15 @@ from billing_functions import (
 # ---------------------------
 # 🔒 User Authentication
 # ---------------------------
-names = ['Dr. Almikhlafi', 'RN']
-usernames = ['moe', 'czarina']
-passwords = ['clinic20201', 'clinic20251']  # ❗ Replace with strong, hashed passwords for deployment
 
-hashed_pw = stauth.Hasher(passwords).generate()
+with open('config.yaml') as file:
+    config = yaml.safe_load(file)
+
 authenticator = stauth.Authenticate(
-    names, usernames, hashed_pw,
-    'clinic_app', 'abcdef', cookie_expiry_days=1
+    config,
+    config['cookie']['name'],
+    config['cookie']['key'],
+    cookie_expiry_days=config['cookie']['expiry_days']
 )
 
 name, auth_status, username = authenticator.login('Login', 'main')
@@ -41,10 +43,10 @@ elif auth_status is None:
 else:
     st.success(f"Welcome, {name} 👋")
 
-
 # ---------------------------------
 # 🩺 Individual Billing Calculator
 # ---------------------------------
+
 st.title("🩺 Alberta NEPH Billing Calculator")
 
 visit_type = st.selectbox("Select Visit Type", ["New consult", "Repeat consult", "Follow up"])
@@ -61,14 +63,13 @@ elif visit_type == "Follow up":
 else:
     hsc_code = None
 
+time_of_day_code = None
 if hsc_code == "03.07B":
     time_of_day = st.selectbox(
         "Time of Day (for after-hours SURC modifier)",
         ["None", "EV (Evening)", "WK (Weekend)", "NTAM (Night AM)", "NTPM (Night PM)"]
     )
     time_of_day_code = None if time_of_day == "None" else time_of_day.split()[0]
-else:
-    time_of_day_code = None
 
 if st.button("Calculate Billing Amount"):
     result = optimal_billing_strategy(
@@ -100,10 +101,10 @@ if st.button("Calculate Billing Amount"):
         for code in result["add_on_codes"]:
             st.markdown(f"- {code}")
 
-
 # ---------------------------------------
 # 📈 Optimization Section with RRNP
 # ---------------------------------------
+
 st.header("📈 Optimize Clinic Billing")
 
 clinic_duration_hours = st.number_input("Clinic duration (hours)", min_value=1, max_value=12, value=8)
@@ -132,7 +133,6 @@ if st.button("Optimize Billing"):
         available_units = total_minutes // 15
         breakdown = []
 
-        # New Consults
         for _ in range(new_consults):
             code = "03.08CV" if bulk_virtual else "03.08A"
             r = optimal_billing_strategy(code, duration_minutes=avg_time, virtual=bulk_virtual)
@@ -145,7 +145,6 @@ if st.button("Optimize Billing"):
                 "Fee ($)": fee
             })
 
-        # Repeat Consults
         for _ in range(repeat_consults):
             r = optimal_billing_strategy("03.07B", duration_minutes=avg_time, virtual=bulk_virtual, time_of_day=time_of_day_code)
             base_fee = repeat_consultation_03_07B(
@@ -167,7 +166,6 @@ if st.button("Optimize Billing"):
                 "Fee ($)": fee
             })
 
-        # Follow-ups
         for _ in range(follow_ups):
             code = "03.03FV" if bulk_virtual else "03.03F"
             r = optimal_billing_strategy(code, duration_minutes=avg_time, virtual=bulk_virtual)
@@ -180,10 +178,8 @@ if st.button("Optimize Billing"):
                 "Fee ($)": fee
             })
 
-        # Redistribute unused units
         breakdown = redistribute_unbilled_units(breakdown, available_units)
 
-        # Summary Calculations
         total_revenue = sum(row["Fee ($)"] for row in breakdown)
         addon_units = sum([
             int(code.split("(")[1].split()[0])
@@ -196,7 +192,6 @@ if st.button("Optimize Billing"):
         unbilled_units = available_units - total_units_billed
         efficiency_pct = (total_units_billed / available_units) * 100
 
-        # Results
         st.success(f"📊 Optimized Revenue: ${total_revenue:.2f}")
         if apply_rrnp:
             st.markdown("🔺 **RRNP Uplift Applied (19.98%)**")
