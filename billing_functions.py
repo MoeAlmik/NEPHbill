@@ -314,4 +314,66 @@ def optimal_billing_strategy(hsc_code: str, duration_minutes: int, virtual: bool
         "total_fee": round(base_fee, 2)
     }
 
+def redistribute_unbilled_units(breakdown, available_units):
+    """
+    Distribute unused 15-min units as 03.08I add-ons fairly across eligible patients.
+    """
+
+    # Count already billed base units (2 per new consult, 1 for repeat/follow-up)
+    base_units = (
+        sum(2 for row in breakdown if row["Visit Type"] == "New Consult") +
+        sum(1 for row in breakdown if row["Visit Type"] in ["Repeat Consult", "Follow-up"])
+    )
+
+    # Count existing add-on units
+    addon_units = 0
+    for row in breakdown:
+        if "03.08I" in row["Add-ons"]:
+            try:
+                addon_units += int(row["Add-ons"].split("(")[1].split()[0])
+            except:
+                pass  # If there's any parsing issue, skip
+
+    used_units = base_units + addon_units
+    unbilled_units = available_units - used_units
+
+    # Identify eligible rows (New or Repeat Consults)
+    eligible_rows = [
+        row for row in breakdown
+        if row["Visit Type"] in ["New Consult", "Repeat Consult"]
+    ]
+
+    # Track current 03.08I counts per row
+    for row in eligible_rows:
+        if "03.08I" in row["Add-ons"]:
+            current_units = int(row["Add-ons"].split("(")[1].split()[0])
+        else:
+            current_units = 0
+        row["_current_addon_units"] = current_units  # temp key
+
+    # Distribute 1 unit at a time across rows in round-robin fashion
+    while unbilled_units > 0:
+        updated = False
+        for row in eligible_rows:
+            if row["_current_addon_units"] < 6 and unbilled_units > 0:
+                row["_current_addon_units"] += 1
+                fee_incr = prolonged_consult_addon_03_08I(1, virtual=False)
+                row["Fee ($)"] += fee_incr
+                unbilled_units -= 1
+                updated = True
+        if not updated:
+            break  # No one left to assign units to
+
+    # Update Add-ons column to reflect redistributed units
+    for row in eligible_rows:
+        units = row["_current_addon_units"]
+        if units > 0:
+            row["Add-ons"] = f"03.08I ({units} unit{'s' if units > 1 else ''})"
+        else:
+            row["Add-ons"] = "-"
+
+        # Clean up temporary field
+        del row["_current_addon_units"]
+
+    return breakdown
 
