@@ -47,6 +47,7 @@ elif auth_status is None:
     st.stop()
 else:
     st.success(f"Welcome, {name} 👋")
+    authenticator.logout("Logout", location='sidebar')
 
 # ---------------------------------
 # 🩺 Individual Billing Calculator
