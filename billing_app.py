@@ -1,5 +1,11 @@
+# --------------------------------------
+# 🔐 Secure Alberta NEPH Billing App
+# --------------------------------------
+
 import streamlit as st
 import pandas as pd
+import streamlit_authenticator as stauth
+
 from billing_functions import (
     consult_03_08A,
     consult_03_08CV,
@@ -8,12 +14,37 @@ from billing_functions import (
     followup_virtual_visit_03_03FV,
     prolonged_consult_addon_03_08I,
     optimal_billing_strategy,
-    redistribute_unbilled_units  # ✅ Make sure this is imported
+    redistribute_unbilled_units
 )
 
-# -----------------------------
-# 🩺 Individual Billing Section
-# -----------------------------
+# ---------------------------
+# 🔒 User Authentication
+# ---------------------------
+names = ['Dr. Ali', 'Nurse Betty']
+usernames = ['ali', 'betty']
+passwords = ['pw1', 'pw2']  # ❗ Replace with strong, hashed passwords for deployment
+
+hashed_pw = stauth.Hasher(passwords).generate()
+authenticator = stauth.Authenticate(
+    names, usernames, hashed_pw,
+    'clinic_app', 'abcdef', cookie_expiry_days=1
+)
+
+name, auth_status, username = authenticator.login('Login', 'main')
+
+if auth_status is False:
+    st.error("Invalid credentials")
+    st.stop()
+elif auth_status is None:
+    st.warning("Please enter your username and password")
+    st.stop()
+else:
+    st.success(f"Welcome, {name} 👋")
+
+
+# ---------------------------------
+# 🩺 Individual Billing Calculator
+# ---------------------------------
 st.title("🩺 Alberta NEPH Billing Calculator")
 
 visit_type = st.selectbox("Select Visit Type", ["New consult", "Repeat consult", "Follow up"])
@@ -40,11 +71,12 @@ else:
     time_of_day_code = None
 
 if st.button("Calculate Billing Amount"):
-    result = optimal_billing_strategy(hsc_code, duration_minutes=duration, virtual=is_virtual, time_of_day=time_of_day_code)
+    result = optimal_billing_strategy(
+        hsc_code, duration_minutes=duration, virtual=is_virtual, time_of_day=time_of_day_code
+    )
 
-    # Recalculate 03.07B explicitly for accuracy
     if hsc_code == "03.07B":
-        base_fee_only = repeat_consultation_03_07B(
+        base_fee = repeat_consultation_03_07B(
             complexity=result["modifiers_applied"][0] if result["modifiers_applied"] else None,
             virtual=is_virtual,
             time_of_day=time_of_day_code
@@ -53,28 +85,27 @@ if st.button("Calculate Billing Amount"):
             prolonged_consult_addon_03_08I(int(code.split("(")[1].split()[0]), is_virtual)
             for code in result["add_on_codes"] if "03.08I" in code
         ])
-        result["total_fee"] = round(base_fee_only + addon_fee, 2)
+        result["total_fee"] = round(base_fee + addon_fee, 2)
 
     st.success(f"💵 Total Billable Amount: ${result['total_fee']:.2f}")
     st.write(f"📋 Visit Type: **{visit_type}** ({hsc_code})")
 
     if result["modifiers_applied"]:
         st.markdown("🧾 **Modifiers Applied:**")
-        for i, mod in enumerate(result["modifiers_applied"], start=1):
-            st.markdown(f"{i}: {mod}")
+        for mod in result["modifiers_applied"]:
+            st.markdown(f"- {mod}")
 
     if result["add_on_codes"]:
         st.markdown("➕ **Add-on Codes:**")
-        for i, code in enumerate(result["add_on_codes"], start=1):
-            st.markdown(f"{i}: {code}")
+        for code in result["add_on_codes"]:
+            st.markdown(f"- {code}")
 
 
-# -------------------------------------
-# 📈 OPTIMIZATION SECTION (with RRNP)
-# -------------------------------------
+# ---------------------------------------
+# 📈 Optimization Section with RRNP
+# ---------------------------------------
 st.header("📈 Optimize Clinic Billing")
 
-# --- Input Section ---
 clinic_duration_hours = st.number_input("Clinic duration (hours)", min_value=1, max_value=12, value=8)
 new_consults = st.number_input("Number of new consults", min_value=0, value=5)
 repeat_consults = st.number_input("Number of repeat consults", min_value=0, value=5)
@@ -84,7 +115,6 @@ total_patients = new_consults + repeat_consults + follow_ups
 st.markdown(f"👥 **Total Patients:** {total_patients}")
 
 bulk_virtual = st.checkbox("Are all visits virtual?", value=False)
-
 apply_rrnp = st.checkbox("Apply RRNP Uplift (+19.98%)", value=False)
 
 time_of_day_bulk = st.selectbox(
@@ -93,7 +123,6 @@ time_of_day_bulk = st.selectbox(
 )
 time_of_day_code = None if time_of_day_bulk == "None" else time_of_day_bulk.split()[0]
 
-# --- Billing Logic ---
 if st.button("Optimize Billing"):
     if total_patients == 0:
         st.error("Total patient count must be greater than 0.")
@@ -101,16 +130,13 @@ if st.button("Optimize Billing"):
         total_minutes = clinic_duration_hours * 60
         avg_time = total_minutes // total_patients
         available_units = total_minutes // 15
-
         breakdown = []
 
-        # New consults
+        # New Consults
         for _ in range(new_consults):
             code = "03.08CV" if bulk_virtual else "03.08A"
             r = optimal_billing_strategy(code, duration_minutes=avg_time, virtual=bulk_virtual)
-            fee = r["total_fee"]
-            if apply_rrnp:
-                fee = round(fee * 1.1998, 2)
+            fee = round(r["total_fee"] * 1.1998, 2) if apply_rrnp else r["total_fee"]
             breakdown.append({
                 "Visit Type": "New Consult",
                 "HSC Code": code,
@@ -119,7 +145,7 @@ if st.button("Optimize Billing"):
                 "Fee ($)": fee
             })
 
-        # Repeat consults
+        # Repeat Consults
         for _ in range(repeat_consults):
             r = optimal_billing_strategy("03.07B", duration_minutes=avg_time, virtual=bulk_virtual, time_of_day=time_of_day_code)
             base_fee = repeat_consultation_03_07B(
@@ -131,9 +157,8 @@ if st.button("Optimize Billing"):
                 prolonged_consult_addon_03_08I(int(code.split("(")[1].split()[0]), bulk_virtual)
                 for code in r["add_on_codes"] if "03.08I" in code
             ])
-            fee = round(base_fee + addon_fee, 2)
-            if apply_rrnp:
-                fee = round(fee * 1.1998, 2)
+            total_fee = round(base_fee + addon_fee, 2)
+            fee = round(total_fee * 1.1998, 2) if apply_rrnp else total_fee
             breakdown.append({
                 "Visit Type": "Repeat Consult",
                 "HSC Code": "03.07B",
@@ -146,9 +171,7 @@ if st.button("Optimize Billing"):
         for _ in range(follow_ups):
             code = "03.03FV" if bulk_virtual else "03.03F"
             r = optimal_billing_strategy(code, duration_minutes=avg_time, virtual=bulk_virtual)
-            fee = r["total_fee"]
-            if apply_rrnp:
-                fee = round(fee * 1.1998, 2)
+            fee = round(r["total_fee"] * 1.1998, 2) if apply_rrnp else r["total_fee"]
             breakdown.append({
                 "Visit Type": "Follow-up",
                 "HSC Code": code,
@@ -157,10 +180,10 @@ if st.button("Optimize Billing"):
                 "Fee ($)": fee
             })
 
-        # 💡 Optimize Add-on Redistribution
+        # Redistribute unused units
         breakdown = redistribute_unbilled_units(breakdown, available_units)
 
-        # Recalculate total revenue and unit counts
+        # Summary Calculations
         total_revenue = sum(row["Fee ($)"] for row in breakdown)
         addon_units = sum([
             int(code.split("(")[1].split()[0])
@@ -173,10 +196,11 @@ if st.button("Optimize Billing"):
         unbilled_units = available_units - total_units_billed
         efficiency_pct = (total_units_billed / available_units) * 100
 
-        # --- Results Display ---
+        # Results
         st.success(f"📊 Optimized Revenue: ${total_revenue:.2f}")
         if apply_rrnp:
             st.markdown("🔺 **RRNP Uplift Applied (19.98%)**")
+
         st.markdown(f"- ⏱️ Avg. Time per Patient: **{avg_time} mins**")
         st.markdown(f"- 🧾 New Consults: ${sum(row['Fee ($)'] for row in breakdown if row['Visit Type'] == 'New Consult'):.2f}")
         st.markdown(f"- 🔁 Repeat Consults: ${sum(row['Fee ($)'] for row in breakdown if row['Visit Type'] == 'Repeat Consult'):.2f}")
